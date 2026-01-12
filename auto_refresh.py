@@ -39,7 +39,7 @@ def jalankan_refresh():
     pyautogui.moveTo(old_x, old_y)
 
 def monitor_scs():
-    print("--- MONITOR SCS AKTIF (VERSI FOLDER TANGGAL) ---")
+    print("--- MONITOR SCS AKTIF ---")
     print(f"Target Koordinat: {REFRESH_BUTTON_POS}")
     
     error_start_time = None
