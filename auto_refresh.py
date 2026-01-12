@@ -2,131 +2,170 @@ import pyautogui
 import time
 import os
 import glob
-from datetime import datetime
-import sys
 
 # --- KONFIGURASI ---
-REFRESH_BUTTON_POS = (1470, 2031)  # Koordinat tombol Refresh
-BASE_LOG_DIR = r"C:\SCS\ErrorShowLog"
-REFRESH_DELAY = 10                  # Detik antara setiap refresh saat error
-ALARM_THRESHOLD = 180               # Detik (3 menit) sebelum alarm berbunyi
-CHECK_INTERVAL = 2                  # Detik antara pemeriksaan log
+REFRESH_X = 1470
+REFRESH_Y = 2031
+LOG_DIR = r"C:\SCS\ErrorShowLog"
 
-def get_today_folder():
-    """Path folder log hari ini: YYYYMM/DD"""
-    now = datetime.now()
-    year_month = now.strftime("%Y%m")  # 202601
-    day = now.strftime("%d")           # 12
-    return os.path.join(BASE_LOG_DIR, year_month, day)
+print("🔄 SCS AUTO-REFRESH - ENCODING FIX")
+print("=" * 50)
 
-def get_latest_log_file(folder):
-    """Ambil file log terbaru di folder"""
-    if not os.path.exists(folder):
-        return None
-    
-    # Cari semua file ErrorShow*.log
-    files = glob.glob(os.path.join(folder, "ErrorShow*.log"))
-    if not files:
-        return None
-    
-    # Urutkan, ambil yang terakhir (paling baru)
-    files.sort()
-    return files[-1]
+# Test klik
+print("Testing mouse click...")
+pyautogui.click(REFRESH_X, REFRESH_Y)
+print(f"✅ Clicked at ({REFRESH_X}, {REFRESH_Y})")
 
-def check_status(log_file):
-    """Cek status dari baris terakhir file log"""
-    if not log_file or not os.path.exists(log_file):
-        return False
-    
+# Cari file log terbaru
+print("\nFinding latest log file...")
+log_files = []
+for root, dirs, files in os.walk(LOG_DIR):
+    for file in files:
+        if "ErrorShow" in file and file.endswith(".log"):
+            full_path = os.path.join(root, file)
+            mod_time = os.path.getmtime(full_path)
+            log_files.append((mod_time, full_path))
+
+if not log_files:
+    print("❌ No log files found!")
+    exit()
+
+log_files.sort(reverse=True)
+log_file = log_files[0][1]
+print(f"✅ Using: {os.path.basename(log_file)}")
+
+# Coba berbagai encoding
+encodings = ['utf-8', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1', 'cp1252', 'ascii']
+
+print("\n🔍 Testing file encoding...")
+correct_encoding = None
+sample_content = None
+
+for encoding in encodings:
     try:
-        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
+        with open(log_file, 'r', encoding=encoding) as f:
+            test_content = f.read(200)  # Baca 200 karakter pertama
         
-        if not lines:
-            return False
-        
-        last_line = lines[-1].strip()
-        return last_line.endswith(": 1")  # True jika error
-    except:
-        return False
-
-def do_refresh():
-    """Klik tombol refresh"""
-    try:
-        pyautogui.click(REFRESH_BUTTON_POS)
-        return True
-    except:
-        return False
-
-def main():
-    """Program utama"""
-    # Inisialisasi variabel
-    is_error_state = False
-    error_start_time = None
-    last_refresh_time = 0
-    refresh_count = 0
-    
-    print("🔄 SCS Auto-Refresh")
-    print(f"📍 Koordinat: {REFRESH_BUTTON_POS}")
-    print(f"📁 Folder: {BASE_LOG_DIR}")
-    print("⏳ Monitoring dimulai...\n")
-    
-    while True:
-        try:
-            # 1. Dapatkan folder dan file log
-            folder = get_today_folder()
-            log_file = get_latest_log_file(folder)
-            
-            if not log_file:
-                time.sleep(5)
-                continue
-            
-            # 2. Cek status
-            is_error = check_status(log_file)
-            
-            # 3. Jika error, lakukan refresh
-            if is_error:
-                current_time = time.time()
-                
-                # Jika baru error
-                if not is_error_state:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️  Error terdeteksi")
-                    is_error_state = True
-                    error_start_time = current_time
-                    last_refresh_time = 0
-                    refresh_count = 0
-                
-                # Hitung durasi error
-                error_duration = current_time - error_start_time
-                
-                # Refresh setiap REFRESH_DELAY detik
-                if current_time - last_refresh_time >= REFRESH_DELAY:
-                    if do_refresh():
-                        refresh_count += 1
-                        last_refresh_time = current_time
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Refresh #{refresh_count}")
-                
-                # Alarm setelah 3 menit
-                if error_duration >= ALARM_THRESHOLD:
-                    mins = int(error_duration // 60)
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 Error sudah {mins} menit")
-            
-            # 4. Jika kembali normal
-            elif is_error_state:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Sistem normal")
-                is_error_state = False
-                error_start_time = None
-                refresh_count = 0
-            
-            # Tunggu sebelum cek lagi
-            time.sleep(CHECK_INTERVAL)
-            
-        except KeyboardInterrupt:
-            print("\n🛑 Program dihentikan")
+        # Cek jika content terlihat normal (tidak ada karakter aneh)
+        if 'system' in test_content.lower() or 'ready' in test_content.lower():
+            correct_encoding = encoding
+            sample_content = test_content
+            print(f"✅ Found encoding: {encoding}")
             break
-        except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Error: {e}")
-            time.sleep(5)
+    except:
+        continue
 
-if __name__ == "__main__":
-    main()
+if not correct_encoding:
+    print("⚠️  Cannot determine encoding, using utf-8 with errors ignore")
+    correct_encoding = 'utf-8'
+
+print("\n📄 Reading file with encoding:", correct_encoding)
+
+# Baca file dengan encoding yang benar
+try:
+    with open(log_file, 'r', encoding=correct_encoding, errors='ignore') as f:
+        content = f.read()
+    
+    print(f"File size: {len(content)} characters")
+    
+    # Split menjadi baris
+    lines = content.split('\n')
+    print(f"Total lines: {len(lines)}")
+    
+    # Tampilkan beberapa baris terakhir yang tidak kosong
+    print("\nLast non-empty lines:")
+    count = 0
+    for i in range(len(lines)-1, -1, -1):
+        line = lines[i].strip()
+        if line:
+            print(f"[{i+1}] {line[:80]}")
+            count += 1
+            if count >= 5:
+                break
+                
+except Exception as e:
+    print(f"❌ Error reading file: {e}")
+    exit()
+
+print("\n🚀 STARTING MONITORING...")
+print("=" * 50)
+print("Press Ctrl+C to stop\n")
+
+def find_latest_status(content):
+    """Cari status terbaru dalam content"""
+    lines = content.split('\n')
+    
+    for line in reversed(lines):
+        line = line.strip()
+        if line:
+            # Cari pattern ": 1" atau ": 0"
+            if line.endswith(": 1"):
+                return "ERROR", line
+            elif line.endswith(": 0"):
+                return "NORMAL", line
+            elif ": 1" in line:
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[-1].strip() == "1":
+                    return "ERROR", line
+            elif ": 0" in line:
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[-1].strip() == "0":
+                    return "NORMAL", line
+    
+    return "UNKNOWN", None
+
+refresh_count = 0
+last_status = None
+last_line_content = None
+
+while True:
+    try:
+        timestamp = time.strftime("%H:%M:%S")
+        
+        # Baca file
+        try:
+            with open(log_file, 'r', encoding=correct_encoding, errors='ignore') as f:
+                content = f.read()
+            
+            # Cari status terbaru
+            status, line = find_latest_status(content)
+            
+            if line != last_line_content:
+                # Ada perubahan di log
+                if status == "ERROR":
+                    print(f"\n[{timestamp}] 🔴 ERROR DETECTED")
+                    print(f"   Line: {line[:80]}")
+                    
+                    # KLIK REFRESH
+                    pyautogui.click(REFRESH_X, REFRESH_Y)
+                    refresh_count += 1
+                    print(f"   🔄 REFRESH #{refresh_count}")
+                    
+                elif status == "NORMAL":
+                    if last_status == "ERROR":
+                        print(f"\n[{timestamp}] ✅ SYSTEM BACK TO NORMAL")
+                        print(f"   Line: {line[:80]}")
+                    # else: normal terus, tidak perlu print
+                
+                last_line_content = line
+                last_status = status
+                
+            else:
+                # Status sama, tidak ada perubahan
+                if status == "ERROR" and int(time.time()) % 10 == 0:
+                    # Setiap 10 detik saat error, lakukan refresh
+                    pyautogui.click(REFRESH_X, REFRESH_Y)
+                    refresh_count += 1
+                    print(f"[{timestamp}] 🔄 Auto-refresh #{refresh_count}")
+        
+        except Exception as e:
+            print(f"[{timestamp}] ❌ Read error: {e}")
+        
+        time.sleep(2)
+        
+    except KeyboardInterrupt:
+        print(f"\n🛑 STOPPED. Total refreshes: {refresh_count}")
+        break
+    except Exception as e:
+        print(f"[{time.strftime('%H:%M:%S')}] ❌ Error: {e}")
+        time.sleep(5)
