@@ -1,100 +1,132 @@
 import pyautogui
 import time
 import os
-import winsound
-from datetime import datetime
 import glob
+from datetime import datetime
+import sys
 
 # --- KONFIGURASI ---
-REFRESH_BUTTON_POS = (1470, 2031) 
+REFRESH_BUTTON_POS = (1470, 2031)  # Koordinat tombol Refresh
 BASE_LOG_DIR = r"C:\SCS\ErrorShowLog"
-REFRESH_DELAY = 10      
-ALARM_THRESHOLD = 180   
+REFRESH_DELAY = 10                  # Detik antara setiap refresh saat error
+ALARM_THRESHOLD = 180               # Detik (3 menit) sebelum alarm berbunyi
+CHECK_INTERVAL = 2                  # Detik antara pemeriksaan log
 
-def get_latest_log_file():
-    """Mencari file log terbaru di dalam struktur folder TahunBulan/Tanggal/"""
+# Variabel status
+is_error_state = False
+error_start_time = None
+last_refresh_time = 0
+refresh_count = 0
+
+def get_today_folder():
+    """Path folder log hari ini: YYYYMM/DD"""
     now = datetime.now()
-    folder_thn_bln = now.strftime("%Y%m") # Contoh: 202601
-    folder_tgl = now.strftime("%d")       # Contoh: 12
-    
-    # Path ke folder tanggal hari ini
-    target_dir = os.path.join(BASE_LOG_DIR, folder_thn_bln, folder_tgl)
-    
-    if not os.path.exists(target_dir):
-        return None, target_dir
+    year_month = now.strftime("%Y%m")  # 202601
+    day = now.strftime("%d")           # 12
+    return os.path.join(BASE_LOG_DIR, year_month, day)
 
-    # Mencari semua file di dalam folder tersebut
-    files = glob.glob(os.path.join(target_dir, "*"))
+def get_latest_log_file(folder):
+    """Ambil file log terbaru di folder"""
+    if not os.path.exists(folder):
+        return None
+    
+    # Cari semua file ErrorShow*.log
+    files = glob.glob(os.path.join(folder, "ErrorShow*.log"))
     if not files:
-        return None, target_dir
-
-    # Ambil file yang paling terakhir dimodifikasi (paling baru)
-    latest_file = max(files, key=os.path.getmtime)
-    return latest_file, target_dir
-
-def jalankan_refresh():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] >>> KLIK REFRESH! <<<")
-    old_x, old_y = pyautogui.position()
-    pyautogui.click(REFRESH_BUTTON_POS)
-    pyautogui.moveTo(old_x, old_y)
-
-def monitor_scs():
-    print("--- MONITOR SCS AKTIF ---")
-    print(f"Target Koordinat: {REFRESH_BUTTON_POS}")
+        return None
     
-    error_start_time = None
-    last_refresh_time = 0
+    # Urutkan, ambil yang terakhir (paling baru)
+    files.sort()
+    return files[-1]
+
+def check_status(log_file):
+    """Cek status dari baris terakhir file log"""
+    if not log_file or not os.path.exists(log_file):
+        return False
+    
+    try:
+        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        if not lines:
+            return False
+        
+        last_line = lines[-1].strip()
+        return last_line.endswith(": 1")  # True jika error
+    except:
+        return False
+
+def do_refresh():
+    """Klik tombol refresh"""
+    try:
+        pyautogui.click(REFRESH_BUTTON_POS)
+        return True
+    except:
+        return False
+
+def main():
+    """Program utama"""
+    print("🔄 SCS Auto-Refresh")
+    print(f"📍 Koordinat: {REFRESH_BUTTON_POS}")
+    print(f"📁 Folder: {BASE_LOG_DIR}")
+    print("⏳ Monitoring dimulai...\n")
     
     while True:
-        log_path, current_dir = get_latest_log_file()
-        
-        # Jika folder atau file belum ada
-        if log_path is None:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Menunggu file di: {current_dir}")
-            time.sleep(10)
-            continue
-
         try:
-            # Menggunakan mode 'rb' dan seek untuk memastikan membaca data paling baru
-            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-                if not lines:
-                    time.sleep(2)
-                    continue
+            # 1. Dapatkan folder dan file log
+            folder = get_today_folder()
+            log_file = get_latest_log_file(folder)
+            
+            if not log_file:
+                time.sleep(5)
+                continue
+            
+            # 2. Cek status
+            is_error = check_status(log_file)
+            
+            # 3. Jika error, lakukan refresh
+            if is_error:
+                current_time = time.time()
                 
-                # Ambil baris terakhir yang tidak kosong
-                last_line = lines[-1].strip()
-                if not last_line and len(lines) > 1:
-                    last_line = lines[-2].strip()
-
-                # LOGIKA DETEKSI STATUS
-                if last_line.endswith(": 1"):
-                    now = time.time()
-                    if error_start_time is None:
-                        print(f"MERAH! File: {os.path.basename(log_path)}")
-                        print(f"Isi Log: {last_line}")
-                        error_start_time = now
-                    
-                    # Refresh tiap 10 detik
-                    if (now - last_refresh_time) >= REFRESH_DELAY:
-                        jalankan_refresh()
-                        last_refresh_time = now
-                    
-                    # Alarm jika sudah 3 menit
-                    if (now - error_start_time) >= ALARM_THRESHOLD:
-                        print("!!! ALARM: SUDAH 3 MENIT MASIH ERROR !!!")
-                        winsound.Beep(2500, 800)
-                
-                elif last_line.endswith(": 0"):
-                    if error_start_time is not None:
-                        print("Sistem HIJAU (Normal).")
-                    error_start_time = None
+                # Jika baru error
+                if not is_error_state:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️  Error terdeteksi")
+                    is_error_state = True
+                    error_start_time = current_time
                     last_refresh_time = 0
-
+                    refresh_count = 0
+                
+                # Hitung durasi error
+                error_duration = current_time - error_start_time
+                
+                # Refresh setiap REFRESH_DELAY detik
+                if current_time - last_refresh_time >= REFRESH_DELAY:
+                    if do_refresh():
+                        refresh_count += 1
+                        last_refresh_time = current_time
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Refresh #{refresh_count}")
+                
+                # Alarm setelah 3 menit
+                if error_duration >= ALARM_THRESHOLD:
+                    mins = int(error_duration // 60)
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 Error sudah {mins} menit")
+            
+            # 4. Jika kembali normal
+            elif is_error_state:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Sistem normal")
+                is_error_state = False
+                error_start_time = None
+                refresh_count = 0
+            
+            # Tunggu sebelum cek lagi
+            time.sleep(CHECK_INTERVAL)
+            
+        except KeyboardInterrupt:
+            print("\n🛑 Program dihentikan")
+            break
         except Exception as e:
-            print(f"Gagal membaca file {log_path}: {e}")
-
-        time.sleep(2)
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Error: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    monitor_scs()
+    main()
