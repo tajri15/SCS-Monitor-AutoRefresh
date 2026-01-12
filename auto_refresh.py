@@ -12,12 +12,6 @@ REFRESH_DELAY = 10                  # Detik antara setiap refresh saat error
 ALARM_THRESHOLD = 180               # Detik (3 menit) sebelum alarm berbunyi
 CHECK_INTERVAL = 2                  # Detik antara pemeriksaan log
 
-# Variabel status
-is_error_state = False
-error_start_time = None
-last_refresh_time = 0
-refresh_count = 0
-
 def get_today_folder():
     """Path folder log hari ini: YYYYMM/DD"""
     now = datetime.now()
@@ -66,6 +60,12 @@ def do_refresh():
 
 def main():
     """Program utama"""
+    # Inisialisasi variabel
+    is_error_state = False
+    error_start_time = None
+    last_refresh_time = 0
+    refresh_count = 0
+    
     print("🔄 SCS Auto-Refresh")
     print(f"📍 Koordinat: {REFRESH_BUTTON_POS}")
     print(f"📁 Folder: {BASE_LOG_DIR}")
