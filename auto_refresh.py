@@ -7,8 +7,10 @@ import glob
 REFRESH_X = 1470
 REFRESH_Y = 2031
 LOG_DIR = r"C:\SCS\ErrorShowLog"
+INITIAL_DELAY = 10
+REFRESH_INTERVAL = 5
 
-print("🔄 SCS AUTO-REFRESH - ENCODING FIX")
+print("🔄 SCS AUTO-REFRESH - WITH INITIAL DELAY")
 print("=" * 50)
 
 # Test klik
@@ -39,24 +41,21 @@ encodings = ['utf-8', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1', 'cp1252', '
 
 print("\n🔍 Testing file encoding...")
 correct_encoding = None
-sample_content = None
 
 for encoding in encodings:
     try:
         with open(log_file, 'r', encoding=encoding) as f:
-            test_content = f.read(200)  # Baca 200 karakter pertama
+            test_content = f.read(200)
         
-        # Cek jika content terlihat normal (tidak ada karakter aneh)
         if 'system' in test_content.lower() or 'ready' in test_content.lower():
             correct_encoding = encoding
-            sample_content = test_content
             print(f"✅ Found encoding: {encoding}")
             break
     except:
         continue
 
 if not correct_encoding:
-    print("⚠️  Cannot determine encoding, using utf-8 with errors ignore")
+    print("⚠️  Using utf-8 with errors ignore")
     correct_encoding = 'utf-8'
 
 print("\n📄 Reading file with encoding:", correct_encoding)
@@ -66,13 +65,9 @@ try:
     with open(log_file, 'r', encoding=correct_encoding, errors='ignore') as f:
         content = f.read()
     
-    print(f"File size: {len(content)} characters")
-    
-    # Split menjadi baris
     lines = content.split('\n')
     print(f"Total lines: {len(lines)}")
     
-    # Tampilkan beberapa baris terakhir yang tidak kosong
     print("\nLast non-empty lines:")
     count = 0
     for i in range(len(lines)-1, -1, -1):
@@ -80,7 +75,7 @@ try:
         if line:
             print(f"[{i+1}] {line[:80]}")
             count += 1
-            if count >= 5:
+            if count >= 3:
                 break
                 
 except Exception as e:
@@ -89,6 +84,8 @@ except Exception as e:
 
 print("\n🚀 STARTING MONITORING...")
 print("=" * 50)
+print(f"Initial delay: {INITIAL_DELAY} seconds after first error")
+print(f"Refresh interval: {REFRESH_INTERVAL} seconds during error")
 print("Press Ctrl+C to stop\n")
 
 def find_latest_status(content):
@@ -98,7 +95,6 @@ def find_latest_status(content):
     for line in reversed(lines):
         line = line.strip()
         if line:
-            # Cari pattern ": 1" atau ": 0"
             if line.endswith(": 1"):
                 return "ERROR", line
             elif line.endswith(": 0"):
@@ -114,9 +110,13 @@ def find_latest_status(content):
     
     return "UNKNOWN", None
 
+# Variabel status
 refresh_count = 0
-last_status = None
 last_line_content = None
+error_start_time = None
+initial_delay_passed = False
+in_error_state = False
+last_refresh_time = 0
 
 while True:
     try:
@@ -132,31 +132,54 @@ while True:
             
             if line != last_line_content:
                 # Ada perubahan di log
+                last_line_content = line
+                
                 if status == "ERROR":
                     print(f"\n[{timestamp}] 🔴 ERROR DETECTED")
                     print(f"   Line: {line[:80]}")
                     
-                    # KLIK REFRESH
-                    pyautogui.click(REFRESH_X, REFRESH_Y)
-                    refresh_count += 1
-                    print(f"   🔄 REFRESH #{refresh_count}")
+                    # Reset timer untuk delay awal
+                    error_start_time = time.time()
+                    initial_delay_passed = False
+                    in_error_state = True
+                    last_refresh_time = 0
+                    
+                    print(f"   ⏳ Waiting {INITIAL_DELAY} seconds before first refresh...")
                     
                 elif status == "NORMAL":
-                    if last_status == "ERROR":
+                    if in_error_state:
                         print(f"\n[{timestamp}] ✅ SYSTEM BACK TO NORMAL")
                         print(f"   Line: {line[:80]}")
-                    # else: normal terus, tidak perlu print
+                        
+                        # Reset semua status
+                        in_error_state = False
+                        error_start_time = None
+                        initial_delay_passed = False
+                        refresh_count = 0
+            
+            # Logika refresh saat error
+            if in_error_state and status == "ERROR":
+                current_time = time.time()
+                error_duration = current_time - error_start_time
                 
-                last_line_content = line
-                last_status = status
+                # Cek apakah sudah melewati delay awal
+                if not initial_delay_passed:
+                    if error_duration >= INITIAL_DELAY:
+                        initial_delay_passed = True
+                        print(f"\n[{timestamp}] ⏰ Initial delay passed, starting auto-refresh")
+                        print(f"   Will refresh every {REFRESH_INTERVAL} seconds")
                 
-            else:
-                # Status sama, tidak ada perubahan
-                if status == "ERROR" and int(time.time()) % 10 == 0:
-                    # Setiap 10 detik saat error, lakukan refresh
-                    pyautogui.click(REFRESH_X, REFRESH_Y)
-                    refresh_count += 1
-                    print(f"[{timestamp}] 🔄 Auto-refresh #{refresh_count}")
+                # Lakukan refresh jika sudah melewati delay awal
+                if initial_delay_passed:
+                    if current_time - last_refresh_time >= REFRESH_INTERVAL:
+                        # KLIK REFRESH
+                        pyautogui.click(REFRESH_X, REFRESH_Y)
+                        refresh_count += 1
+                        last_refresh_time = current_time
+                        
+                        minutes = int(error_duration // 60)
+                        seconds = int(error_duration % 60)
+                        print(f"[{timestamp}] 🔄 Refresh #{refresh_count} (Error: {minutes}:{seconds:02d})")
         
         except Exception as e:
             print(f"[{timestamp}] ❌ Read error: {e}")
