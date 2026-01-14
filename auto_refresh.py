@@ -9,9 +9,9 @@ import threading
 REFRESH_X = 1470
 REFRESH_Y = 2031
 LOG_DIR = r"C:\SCS\ErrorShowLog"
-WAIT_AFTER_ERROR = 5
-REFRESH_EVERY = 5
-ALARM_AFTER = 180
+WAIT_AFTER_ERROR = 10
+REFRESH_EVERY = 10
+ALARM_AFTER = 60
 
 print("🔄 SCS AUTO-REFRESH")
 print("=" * 50)
@@ -37,8 +37,8 @@ print(f"✅ Using: {os.path.basename(log_file)}")
 
 print(f"\n⏱️  Delay awal: {WAIT_AFTER_ERROR} detik")
 print(f"🔄 Refresh: setiap {REFRESH_EVERY} detik")
-print(f"🚨 Buzzer: nyala terus setelah {ALARM_AFTER//60} menit")
-print(f"   ⏹️  Berhenti: jika mouse digerakkan/error selesai")
+print(f"🚨 Buzzer: nyala setelah {ALARM_AFTER//60} menit error")
+print(f"   ⏹️  Berhenti: mouse digerakkan/error selesai")
 print("=" * 50)
 print("Ctrl+C to stop\n")
 
@@ -143,9 +143,9 @@ while True:
                         secs = int(error_duration % 60)
                         print(f"[{time.strftime('%H:%M:%S')}] 🔄 Refresh #{refresh_count} (Error: {mins}:{secs:02d})")
                 
-                # 3. BUZZER NYALA SETELAH 3 MENIT
+                # 3. ⭐ BUZZER NYALA SETELAH 1 MENIT (ALARM_AFTER = 60) ⭐
                 if error_duration >= ALARM_AFTER and not buzzer_active:
-                    print(f"\n[{time.strftime('%H:%M:%S')}] 🚨 BUZZER NYALA!")
+                    print(f"\n[{time.strftime('%H:%M:%S')}] 🚨 BUZZER NYALA! (setelah {ALARM_AFTER//60} menit)")
                     print("   🔊 Beep terus menerus...")
                     print("   🖱️  Gerakkan mouse untuk matikan buzzer")
                     
