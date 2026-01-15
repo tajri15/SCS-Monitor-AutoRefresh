@@ -1,28 +1,25 @@
 import pyautogui
 import time
 import os
-import glob
-import winsound
 import threading
+import winsound
 
 # --- KONFIGURASI ---
 REFRESH_X = 1470
 REFRESH_Y = 2031
 LOG_DIR = r"C:\SCS\ErrorShowLog"
-WAIT_AFTER_ERROR = 5
-REFRESH_EVERY = 4
-ALARM_AFTER = 60
+INITIAL_DELAY = 10
+REFRESH_INTERVAL = 10
+ALARM_THRESHOLD = 60
 
-print("🔄 SCS AUTO-REFRESH")
-print("=" * 50)
+print("SCS AUTO-REFRESH")
+print("=" * 40)
 
 # Test klik
-print("Testing mouse click...")
 pyautogui.click(REFRESH_X, REFRESH_Y)
-print(f"✅ Clicked at ({REFRESH_X}, {REFRESH_Y})")
+print(f"Clicked at ({REFRESH_X}, {REFRESH_Y})")
 
 # Cari file log terbaru
-print("\nFinding latest log file...")
 log_files = []
 for root, dirs, files in os.walk(LOG_DIR):
     for file in files:
@@ -31,32 +28,36 @@ for root, dirs, files in os.walk(LOG_DIR):
             mod_time = os.path.getmtime(full_path)
             log_files.append((mod_time, full_path))
 
+if not log_files:
+    print("No log files found!")
+    exit()
+
 log_files.sort(reverse=True)
 log_file = log_files[0][1]
-print(f"✅ Using: {os.path.basename(log_file)}")
+print(f"Using: {os.path.basename(log_file)}")
 
-print(f"\n⏱️  Delay awal: {WAIT_AFTER_ERROR} detik")
-print(f"🔄 Refresh: setiap {REFRESH_EVERY} detik")
-print(f"🚨 Buzzer: nyala setelah {ALARM_AFTER//60} menit error")
-print(f"   ⏹️  Berhenti: mouse digerakkan/error selesai")
-print("=" * 50)
-print("Ctrl+C to stop\n")
+print(f"\nDelay awal: {INITIAL_DELAY} detik")
+print(f"Refresh: setiap {REFRESH_INTERVAL} detik")
+print(f"Buzzer: nyala setelah 1 menit")
+print("=" * 40)
+print("Press Ctrl+C to stop\n")
 
-# Variabel status
-error_active = False
-error_start_time = 0
+# Variabel status global
 refresh_count = 0
+last_line_content = None
+error_start_time = None
+initial_delay_passed = False
+in_error_state = False
+last_refresh_time = 0
 buzzer_active = False
-last_line = ""
+stop_buzzer = False
 last_mouse_pos = pyautogui.position()
 buzzer_thread = None
-stop_buzzer = False
+technician_attended = False
 
 def continuous_buzzer():
-    """Buzzer bunyi terus menerus (beep berulang)"""
+    """Buzzer bunyi terus menerus"""
     global stop_buzzer
-    
-    print("   🔊 BUZZER NYALA (beep terus)")
     stop_buzzer = False
     
     while not stop_buzzer:
@@ -70,119 +71,172 @@ def check_mouse_moved():
     global last_mouse_pos
     current_pos = pyautogui.position()
     
-    if (abs(current_pos.x - last_mouse_pos.x) > 5 or 
-        abs(current_pos.y - last_mouse_pos.y) > 5):
-        last_mouse_pos = current_pos
-        return True
-    return False
+    moved = (abs(current_pos.x - last_mouse_pos.x) > 10 or 
+             abs(current_pos.y - last_mouse_pos.y) > 10)
+    
+    last_mouse_pos = current_pos
+    return moved
 
+def find_latest_status(content):
+    """Cari status terbaru dalam content"""
+    lines = content.split('\n')
+    
+    for line in reversed(lines):
+        line = line.strip()
+        if line:
+            if line.endswith(": 1"):
+                return "ERROR", line
+            elif line.endswith(": 0"):
+                return "NORMAL", line
+            elif ": 1" in line:
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[-1].strip() == "1":
+                    return "ERROR", line
+            elif ": 0" in line:
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[-1].strip() == "0":
+                    return "NORMAL", line
+    
+    return "UNKNOWN", None
+
+# Baca encoding file
+encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252', 'ascii']
+correct_encoding = 'utf-8'
+for encoding in encodings:
+    try:
+        with open(log_file, 'r', encoding=encoding) as f:
+            test_content = f.read(200)
+        if 'system' in test_content.lower() or 'ready' in test_content.lower():
+            correct_encoding = encoding
+            break
+    except:
+        continue
+
+# Inisialisasi status awal
+try:
+    with open(log_file, 'r', encoding=correct_encoding, errors='ignore') as f:
+        content = f.read()
+    
+    status, line = find_latest_status(content)
+    last_line_content = line
+    
+    if status == "ERROR":
+        error_start_time = time.time()
+        in_error_state = True
+        
+except Exception as e:
+    pass
+
+# ========== LOOP UTAMA ==========
 while True:
     try:
-        # Baca file log
-        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
+        timestamp = time.strftime("%H:%M:%S")
         
-        if lines:
-            # Cari baris terakhir yang tidak kosong
-            current_line = ""
-            for line in reversed(lines):
-                if line.strip():
-                    current_line = line.strip()
-                    break
+        # Cek mouse untuk matikan buzzer
+        if buzzer_active and not technician_attended:
+            if check_mouse_moved():
+                stop_buzzer = True
+                buzzer_active = False
+                technician_attended = True
+                print(f"[{timestamp}] Mouse digerakkan - Buzzer dimatikan")
+                time.sleep(1)
+        
+        # Baca file log
+        try:
+            with open(log_file, 'r', encoding=correct_encoding, errors='ignore') as f:
+                content = f.read()
             
-            if current_line != last_line:
-                last_line = current_line
+            status, line = find_latest_status(content)
+            
+            if line != last_line_content:
+                last_line_content = line
                 
-                # CEK ERROR
-                if ": 1" in current_line and (current_line.endswith(": 1") or current_line.split(":")[-1].strip() == "1"):
-                    if not error_active:
-                        error_active = True
+                if status == "ERROR":
+                    if not in_error_state:
+                        print(f"[{timestamp}] ERROR DETECTED")
+                        print(f"Line: {line[:80]}")
+                        
                         error_start_time = time.time()
+                        initial_delay_passed = False
+                        in_error_state = True
+                        last_refresh_time = 0
                         refresh_count = 0
-                        buzzer_active = False
-                        stop_buzzer = False
-                        print(f"\n[{time.strftime('%H:%M:%S')}] ⚠️  ERROR DETECTED")
-                        print(f"   ⏳ Tunggu {WAIT_AFTER_ERROR} detik sebelum refresh...")
-                
-                # CEK NORMAL (ERROR SELESAI)
-                elif ": 0" in current_line and (current_line.endswith(": 0") or current_line.split(":")[-1].strip() == "0"):
-                    if error_active:
-                        # HITUNG DURASI
-                        duration = time.time() - error_start_time
-                        minutes = int(duration // 60)
-                        seconds = int(duration % 60)
+                        technician_attended = False
                         
-                        print(f"\n[{time.strftime('%H:%M:%S')}] ✅ ERROR SELESAI")
-                        print(f"   ⏱️  Durasi: {minutes} menit {seconds} detik")
-                        print(f"   🔄 Total refresh: {refresh_count} kali")
-                        
-                        # MATIKAN BUZZER JIKA NYALA
                         if buzzer_active:
                             stop_buzzer = True
                             buzzer_active = False
-                            print("   🔇 Buzzer dimatikan (error selesai)")
                         
-                        # RESET STATUS
-                        error_active = False
-                        error_start_time = 0
+                        print(f"Waiting {INITIAL_DELAY} seconds before first refresh...")
+                    
+                elif status == "NORMAL":
+                    if in_error_state:
+                        duration = time.time() - error_start_time if error_start_time else 0
+                        mins, secs = divmod(int(duration), 60)
+                        
+                        print(f"[{timestamp}] SYSTEM BACK TO NORMAL")
+                        print(f"Durasi error: {mins:02d}:{secs:02d}")
+                        print(f"Total refresh: {refresh_count} kali")
+                        
+                        if buzzer_active:
+                            stop_buzzer = True
+                            buzzer_active = False
+                        
+                        in_error_state = False
+                        error_start_time = None
+                        initial_delay_passed = False
+                        refresh_count = 0
+                        technician_attended = False
             
-            # LOGIKA REFRESH SAAT ERROR
-            if error_active:
+            # Logika error state
+            if in_error_state and not technician_attended:
                 current_time = time.time()
                 error_duration = current_time - error_start_time
                 
-                # 1. TUNGGU DELAY AWAL DULU
-                if error_duration >= WAIT_AFTER_ERROR:
-                    # 2. REFRESH SETIAP REFRESH_EVERY DETIK
-                    if refresh_count == 0 or (current_time - error_start_time - WAIT_AFTER_ERROR) // REFRESH_EVERY > refresh_count - 1:
+                # Delay awal
+                if not initial_delay_passed:
+                    if error_duration >= INITIAL_DELAY:
+                        initial_delay_passed = True
+                        print(f"[{timestamp}] Mulai auto-refresh")
+                
+                # Auto-refresh (hanya sebelum 1 menit)
+                if initial_delay_passed and error_duration < ALARM_THRESHOLD:
+                    if current_time - last_refresh_time >= REFRESH_INTERVAL:
                         pyautogui.click(REFRESH_X, REFRESH_Y)
                         refresh_count += 1
+                        last_refresh_time = current_time
                         
-                        # Tampilkan status
-                        mins = int(error_duration // 60)
-                        secs = int(error_duration % 60)
-                        print(f"[{time.strftime('%H:%M:%S')}] 🔄 Refresh #{refresh_count} (Error: {mins}:{secs:02d})")
+                        mins, secs = divmod(int(error_duration), 60)
+                        print(f"[{timestamp}] Refresh #{refresh_count} (Error: {mins:02d}:{secs:02d})")
                 
-                # 3. ⭐ BUZZER NYALA SETELAH 1 MENIT (ALARM_AFTER = 60) ⭐
-                if error_duration >= ALARM_AFTER and not buzzer_active:
-                    print(f"\n[{time.strftime('%H:%M:%S')}] 🚨 BUZZER NYALA! (setelah {ALARM_AFTER//60} menit)")
-                    print("   🔊 Beep terus menerus...")
-                    print("   🖱️  Gerakkan mouse untuk matikan buzzer")
+                # Buzzer setelah 1 menit
+                if error_duration >= ALARM_THRESHOLD and not buzzer_active:
+                    print(f"[{timestamp}] BUZZER NYALA! (Error > 1 menit)")
+                    print("Auto-refresh dihentikan")
+                    print("Gerakkan mouse untuk matikan buzzer")
                     
-                    # NYALAKAN BUZZER DI THREAD TERPISAH
                     buzzer_active = True
                     stop_buzzer = False
-                    buzzer_thread = threading.Thread(target=continuous_buzzer)
-                    buzzer_thread.daemon = True
+                    buzzer_thread = threading.Thread(target=continuous_buzzer, daemon=True)
                     buzzer_thread.start()
-                
-                # 4. CEK JIKA MOUSE DIGERAKKAN (MATIKAN BUZZER)
-                if buzzer_active and check_mouse_moved():
-                    stop_buzzer = True
-                    buzzer_active = False
-                    print(f"\n[{time.strftime('%H:%M:%S')}] 🖱️  Mouse digerakkan!")
-                    print("   🔇 Buzzer dimatikan")
-            
-            # TAMPILKAN STATUS NORMAL SETIAP 60 DETIK
-            elif int(time.time()) % 60 == 0:
-                print(f"[{time.strftime('%H:%M:%S')}] ✅ System normal")
         
-        time.sleep(2)
+        except Exception as e:
+            pass
+        
+        time.sleep(1)
         
     except KeyboardInterrupt:
-        print(f"\n🛑 PROGRAM DIHENTIKAN")
-        print(f"   Total refresh: {refresh_count}")
+        print(f"\nPROGRAM DIHENTIKAN")
+        print(f"Total refresh: {refresh_count}")
         
-        # Pastikan buzzer dimatikan
         if buzzer_active:
             stop_buzzer = True
-            print("   🔇 Buzzer dimatikan (program exit)")
         
-        if error_active:
+        if in_error_state and error_start_time:
             duration = time.time() - error_start_time
-            print(f"   Error masih aktif: {int(duration)} detik")
+            mins, secs = divmod(int(duration), 60)
+            print(f"Error masih aktif: {mins:02d}:{secs:02d}")
         break
         
     except Exception as e:
-        print(f"[{time.strftime('%H:%M:%S')}] ❌ Error: {e}")
         time.sleep(5)
