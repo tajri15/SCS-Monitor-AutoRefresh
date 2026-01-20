@@ -8,11 +8,11 @@ import winsound
 REFRESH_X = 1470
 REFRESH_Y = 2031
 LOG_DIR = r"C:\SCS\ErrorShowLog"
-INITIAL_DELAY = 10
-REFRESH_INTERVAL = 10
+INITIAL_DELAY = 5
+REFRESH_INTERVAL = 5
 ALARM_THRESHOLD = 60
-LOG_CHECK_INTERVAL = 300  # Re-check file log setiap 5 menit
-MIDNIGHT_CHECK_WINDOW = 120  # Check 2 menit setelah midnight
+LOG_CHECK_INTERVAL = 300
+MIDNIGHT_CHECK_WINDOW = 120
 
 print("SCS AUTO-REFRESH (Auto Log File Switch)")
 print("=" * 40)
